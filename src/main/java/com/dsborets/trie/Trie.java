@@ -67,4 +67,82 @@ public class Trie<I, K, V extends EntryValue> {
 
     add(nextNode, sequence, length, ++offset, value);
   }
+
+  /**
+   * Remove a value from a trie by key
+   *
+   * @param key   searchable key for the prefix tree
+   * @param value value {@link EntryKey}
+   */
+  private boolean removeFromTrie(String key, EntryKey<I, K> value) {
+    TrieNode<K> node = root.get(key.charAt(0));
+    if (node == null || node.getSequences() == null)
+      return false;
+
+    TrieNode<K> lastNode = searchLastNode(node, key, key.length(), 1);
+
+    if (lastNode == null)
+      return false;
+
+    TrieNode<K> firstNode = remove(lastNode, key, key.length() - 1, value);
+
+    if (firstNode.getSequences() != null && firstNode.getSequences().size() == 0) {
+      root.remove(key.charAt(0));
+      nodeSize--;
+    }
+
+    return true;
+  }
+
+  /**
+   * Remove a nodes from the trie based on se char sequence (trie key)
+   *
+   * @param node   - root node
+   * @param key    - trie key
+   * @param offset - current char in the key
+   * @param value  - the value related to the key
+   * @return first node of the removed sequence
+   */
+  private TrieNode<K> remove(TrieNode<K> node, String key, int offset, EntryKey value) {
+
+    Set<EntryKey> values = node.getValues();
+    if (values != null) {
+      values.remove(value);
+    }
+
+    TrieNode<K> parent = node.getParent();
+
+    if (parent == null)
+      return node;
+
+    Map<Character, TrieNode<K>> children = node.getSequences();
+    if ((children == null || children.size() == 0) && (values == null || values.size() == 0)) {
+      node.setParent(null);
+      parent.getSequences().remove(key.charAt(offset));
+      nodeSize--;
+    }
+
+    return remove(parent, key, --offset, value);
+  }
+
+  /**
+   * Search the last node in the trie based on the sequence of chars (key)
+   *
+   * @param node   - root node
+   * @param key    - trie key
+   * @param length - key length
+   * @param offset - current char in the key
+   * @return last node of the sequence in the trie
+   */
+  private TrieNode<K> searchLastNode(TrieNode<K> node, String key, int length, int offset) {
+    if (length == offset)
+      return node;
+    if (node.getSequences() != null) {
+      TrieNode<K> nextNode = node.getSequences().get(key.charAt(offset));
+      if (nextNode != null && node.getSequences() != null) {
+        return searchLastNode(nextNode, key, length, ++offset);
+      }
+    }
+    return null;
+  }
 }
