@@ -51,6 +51,27 @@ public class TrieTest {
     set = trie.getSet("abc");
     Assert.assertNotNull(set);
     Assert.assertTrue(set.contains(rec1) && set.contains(rec2));
+
+    trie.remove(1, 1);
+    set = trie.getSet("abcd");
+    Assert.assertNull(set);
+
+    Assert.assertEquals(trie.getSize(), 1);
+    Assert.assertEquals(trie.getNodeSize(), 4);
+
+    set = trie.getSet("abc");
+    Assert.assertNotNull(set);
+    Assert.assertArrayEquals(set.toArray(), new Record[]{rec2});
+
+    trie.remove(1, 2);
+    set = trie.getSet("abce");
+    Assert.assertNull(set);
+
+    set = trie.getSet("abc");
+    Assert.assertNull(set);
+
+    Assert.assertEquals(trie.getSize(), 0);
+    Assert.assertEquals(trie.getNodeSize(), 0);
   }
 
   private Function<Integer, Record> mockLoadRecordById() {

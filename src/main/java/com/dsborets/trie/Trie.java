@@ -74,6 +74,20 @@ public class Trie<I, K, V extends EntryValue> {
   }
 
   /**
+   * Remove an entry from the trie and cache by key
+   *
+   * @param cacheId - cache id
+   * @param key     - cache key
+   */
+  public void remove(I cacheId, K key) {
+    checkCacheIdInputParameter(cacheId);
+    checkKeyInputParameter(key);
+    Cache cache = getCacheById(cacheId);
+    cache.invalidate(key);
+    size.decrementAndGet();
+  }
+
+  /**
    * Search the set of values by key
    *
    * @param key - trie key
