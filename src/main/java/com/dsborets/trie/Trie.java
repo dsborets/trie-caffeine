@@ -6,10 +6,13 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 
+import org.apache.commons.lang.StringUtils;
+
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 import javax.annotation.Nonnull;
@@ -29,7 +32,9 @@ public class Trie<I, K, V extends EntryValue> {
 
   private HashMap<I, LoadingCache<K, V>> cacheList;
 
-  private int nodeSize;
+  private AtomicInteger size = new AtomicInteger(0);
+
+  private AtomicInteger nodeSize = new AtomicInteger(0);
 
   public Trie(int minSearchableKeyLength) {
     this.minSearchableKeyLength = minSearchableKeyLength;
@@ -39,6 +44,62 @@ public class Trie<I, K, V extends EntryValue> {
 
   public void addCaffeine(I cacheId, Caffeine<K, V> caffeine, Function<K, V> buildFunction) {
     addCaffeine(cacheId, caffeine, buildFunction, null);
+  }
+
+  public int getSize() {
+    return size.get();
+  }
+
+  /**
+   * Get trie nodes amount
+   *
+   * @return trie nodes amount
+   */
+  public int getNodeSize() {
+    return nodeSize.get();
+  }
+
+  /**
+   * Add an element to the trie and a cache
+   *
+   * @param cacheId - cache id
+   * @param key     - cache key
+   * @param value   - value
+   */
+  public void put(I cacheId, K key, V value) {
+    checkInputParameters(cacheId, key, value);
+    Cache<K, V> cache = getCacheById(cacheId);
+    cache.put(key, value);
+    size.incrementAndGet();
+  }
+
+  /**
+   * Search the set of values by key
+   *
+   * @param key - trie key
+   * @return set of values related to the key
+   */
+  public Set<V> getSet(String key) {
+
+    if (StringUtils.isEmpty(key))
+      throw new RuntimeException("Key should not be empty");
+
+    TrieNode<K> node = root.get(key.charAt(0));
+    if (node == null || node.getSequences() == null)
+      return null;
+
+    Set<EntryKey<I, K>> set = search(node, key, key.length(), 1);
+
+    if (set != null) {
+      Set<V> values = new HashSet<>();
+      set.forEach(s ->
+              values.add(cacheList.get(s.getCacheId()).get(s.getKey()))
+
+      );
+      return values;
+    }
+
+    return null;
   }
 
   /**
@@ -82,7 +143,7 @@ public class Trie<I, K, V extends EntryValue> {
     if (node == null) {
       node = new TrieNode<>();
       root.put(key.charAt(0), node);
-      nodeSize++;
+      nodeSize.incrementAndGet();
     }
 
     add(node, key, key.length(), 1, value);
@@ -111,7 +172,7 @@ public class Trie<I, K, V extends EntryValue> {
 
     if (nextNode == null) {
       nextNode = new TrieNode<>();
-      nodeSize++;
+      nodeSize.incrementAndGet();
       nextNode.setParent(node);
       node.getSequences().put(sequence.charAt(offset), nextNode);
     }
@@ -139,7 +200,7 @@ public class Trie<I, K, V extends EntryValue> {
 
     if (firstNode.getSequences() != null && firstNode.getSequences().size() == 0) {
       root.remove(key.charAt(0));
-      nodeSize--;
+      nodeSize.decrementAndGet();
     }
 
     return true;
@@ -170,10 +231,15 @@ public class Trie<I, K, V extends EntryValue> {
     if ((children == null || children.size() == 0) && (values == null || values.size() == 0)) {
       node.setParent(null);
       parent.getSequences().remove(key.charAt(offset));
-      nodeSize--;
+      nodeSize.decrementAndGet();
     }
 
     return remove(parent, key, --offset, value);
+  }
+
+  private Set<EntryKey<I, K>> search(TrieNode<K> node, String key, int length, int offset) {
+    TrieNode lastNode = searchLastNode(node, key, length, offset);
+    return lastNode != null ? lastNode.getValues() : null;
   }
 
   /**
@@ -195,5 +261,39 @@ public class Trie<I, K, V extends EntryValue> {
       }
     }
     return null;
+  }
+
+  /**
+   * Get a cache by id
+   *
+   * @param cacheId - cache id
+   * @return the cache
+   */
+  private Cache<K, V> getCacheById(I cacheId) {
+    Cache<K, V> cache = cacheList.get(cacheId);
+    if (cache == null)
+      throw new RuntimeException(String.format("Unable to find a cache with id %s", cacheId));
+    return cache;
+  }
+
+  private void checkInputParameters(I cacheId, K key, V value) {
+    checkCacheIdInputParameter(cacheId);
+    checkKeyInputParameter(key);
+    checkValueInputParameter(value);
+  }
+
+  private void checkCacheIdInputParameter(I cacheId) {
+    if (cacheId == null)
+      throw new RuntimeException("Cache id should not be null");
+  }
+
+  private void checkKeyInputParameter(K key) {
+    if (key == null)
+      throw new RuntimeException("Key should not be null");
+  }
+
+  private void checkValueInputParameter(V value) {
+    if (value == null)
+      throw new RuntimeException("Value should not be null");
   }
 }
