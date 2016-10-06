@@ -1,9 +1,18 @@
 package com.dsborets.trie;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.CacheWriter;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.RemovalCause;
+
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+
+import javax.annotation.Nonnull;
 
 /**
  * Prefix tree (trie) implementation
@@ -18,12 +27,54 @@ public class Trie<I, K, V extends EntryValue> {
 
   private HashMap<Character, TrieNode<K>> root;
 
+  private HashMap<I, LoadingCache<K, V>> cacheList;
+
   private int nodeSize;
+
+  public Trie(int minSearchableKeyLength) {
+    this.minSearchableKeyLength = minSearchableKeyLength;
+    root = new HashMap<>();
+    cacheList = new HashMap<>();
+  }
+
+  public void addCaffeine(I cacheId, Caffeine<K, V> caffeine, Function<K, V> buildFunction) {
+    addCaffeine(cacheId, caffeine, buildFunction, null);
+  }
+
+  /**
+   * Add a cache to the list of caches
+   *
+   * @param cacheId       - cache id (must be unique)
+   * @param caffeine      - Caffeine object
+   * @param buildFunction - the function to get an entry by id in case of the entry expiration in the cache (see Caffeine doc)
+   * @param delimiter     - delimiter char if case of free search key
+   */
+  public void addCaffeine(I cacheId, Caffeine<K, V> caffeine, Function<K, V> buildFunction, String delimiter) {
+    Cache currentCache = cacheList.get(cacheId);
+
+    if (currentCache != null)
+      throw new RuntimeException(String.format("The cache with provided id {%s} already exists", cacheId));
+
+    LoadingCache<K, V> cache = caffeine.writer(new CacheWriter<K, V>() {
+      @Override
+
+      public void write(@Nonnull K key, @Nonnull V value) {
+        putToTrie(value.getKey(), new EntryKey<>(cacheId, key));
+      }
+
+      @Override
+      public void delete(@Nonnull K key, V value, @Nonnull RemovalCause cause) {
+        removeFromTrie(value.getKey(), new EntryKey<>(cacheId, key));
+      }
+    }).build(buildFunction::apply);
+
+    cacheList.put(cacheId, cache);
+  }
 
   /**
    * Put a searchable key with related value to the trie by splitting them into chars
    *
-   * @param key searchable key for the prefix tree
+   * @param key   searchable key for the prefix tree
    * @param value value {@link EntryKey}
    */
   private void putToTrie(String key, EntryKey<I, K> value) {
