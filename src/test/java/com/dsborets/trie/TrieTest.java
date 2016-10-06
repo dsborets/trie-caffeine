@@ -9,7 +9,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 
@@ -28,6 +27,30 @@ public class TrieTest {
     Caffeine cache = Caffeine.newBuilder();
 
     trie.addCaffeine(1, cache, mockLoadRecordById());
+  }
+
+  @Test
+  public void testCache() {
+    Record rec1 = new Record("abcd", "value1");
+    trie.put(1, 1, rec1);
+
+    Record rec2 = new Record("abce", "value2");
+    trie.put(1, 2, rec2);
+
+    Assert.assertEquals(trie.getSize(), 2);
+    Assert.assertEquals(trie.getNodeSize(), 5);
+
+    Set set = trie.getSet("abcd");
+    Assert.assertNotNull(set);
+    Assert.assertArrayEquals(set.toArray(), new Record[]{rec1});
+
+    set = trie.getSet("abce");
+    Assert.assertNotNull(set);
+    Assert.assertArrayEquals(set.toArray(), new Record[]{rec2});
+
+    set = trie.getSet("abc");
+    Assert.assertNotNull(set);
+    Assert.assertTrue(set.contains(rec1) && set.contains(rec2));
   }
 
   private Function<Integer, Record> mockLoadRecordById() {
