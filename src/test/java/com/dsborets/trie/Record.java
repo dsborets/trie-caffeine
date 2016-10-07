@@ -3,7 +3,7 @@ package com.dsborets.trie;
 /**
  * Created by dsborets on 10/2/16.
  */
-public class Record implements EntryValue {
+public class Record implements EntryValueCaseInsensitive {
   private String name;
   private String value;
 
@@ -30,7 +30,7 @@ public class Record implements EntryValue {
   }
 
   @Override
-  public String getKey() {
+  public String setKey() {
     return name;
   }
 

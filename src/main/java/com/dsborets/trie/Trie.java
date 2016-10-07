@@ -8,6 +8,7 @@ import com.github.benmanes.caffeine.cache.RemovalCause;
 
 import org.apache.commons.lang.StringUtils;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -34,7 +35,7 @@ public class Trie<I, K, V extends EntryValue> {
 
   private AtomicInteger size = new AtomicInteger(0);
 
-  private AtomicInteger nodeSize = new AtomicInteger(0);
+  private int nodeSize;
 
   public Trie(int minSearchableKeyLength) {
     this.minSearchableKeyLength = minSearchableKeyLength;
@@ -46,6 +47,41 @@ public class Trie<I, K, V extends EntryValue> {
     addCaffeine(cacheId, caffeine, buildFunction, null);
   }
 
+  /**
+   * Add a cache to the list of caches
+   *
+   * @param cacheId       - cache id (must be unique)
+   * @param caffeine      - Caffeine object
+   * @param buildFunction - the function to get an entry by id in case of the entry expiration in the cache (see Caffeine doc)
+   * @param delimiter     - delimiter char if case of free search key
+   */
+  public void addCaffeine(I cacheId, Caffeine<K, V> caffeine, Function<K, V> buildFunction, String delimiter) {
+    Cache currentCache = cacheList.get(cacheId);
+
+    if (currentCache != null)
+      throw new RuntimeException(String.format("The cache with provided id {%s} already exists", cacheId));
+
+    LoadingCache<K, V> cache = caffeine.writer(new CacheWriter<K, V>() {
+      @Override
+
+      public void write(@Nonnull K key, @Nonnull V value) {
+        putToTrie(value.getKey(), new EntryKey<>(cacheId, key), delimiter);
+      }
+
+      @Override
+      public void delete(@Nonnull K key, V value, @Nonnull RemovalCause cause) {
+        removeFromTrie(value.getKey(), new EntryKey<>(cacheId, key), delimiter);
+      }
+    }).build(buildFunction::apply);
+
+    cacheList.put(cacheId, cache);
+  }
+
+  /**
+   * Get size of the trie
+   *
+   * @return size of the trie
+   */
   public int getSize() {
     return size.get();
   }
@@ -56,7 +92,7 @@ public class Trie<I, K, V extends EntryValue> {
    * @return trie nodes amount
    */
   public int getNodeSize() {
-    return nodeSize.get();
+    return nodeSize;
   }
 
   /**
@@ -116,34 +152,12 @@ public class Trie<I, K, V extends EntryValue> {
     return null;
   }
 
-  /**
-   * Add a cache to the list of caches
-   *
-   * @param cacheId       - cache id (must be unique)
-   * @param caffeine      - Caffeine object
-   * @param buildFunction - the function to get an entry by id in case of the entry expiration in the cache (see Caffeine doc)
-   * @param delimiter     - delimiter char if case of free search key
-   */
-  public void addCaffeine(I cacheId, Caffeine<K, V> caffeine, Function<K, V> buildFunction, String delimiter) {
-    Cache currentCache = cacheList.get(cacheId);
-
-    if (currentCache != null)
-      throw new RuntimeException(String.format("The cache with provided id {%s} already exists", cacheId));
-
-    LoadingCache<K, V> cache = caffeine.writer(new CacheWriter<K, V>() {
-      @Override
-
-      public void write(@Nonnull K key, @Nonnull V value) {
-        putToTrie(value.getKey(), new EntryKey<>(cacheId, key));
-      }
-
-      @Override
-      public void delete(@Nonnull K key, V value, @Nonnull RemovalCause cause) {
-        removeFromTrie(value.getKey(), new EntryKey<>(cacheId, key));
-      }
-    }).build(buildFunction::apply);
-
-    cacheList.put(cacheId, cache);
+  private void putToTrie(String key, EntryKey<I, K> value, String delimiter) {
+    if (StringUtils.isNotEmpty(delimiter)) {
+      Arrays.stream(key.split(delimiter)).forEach(k -> putToTrie(k, value));
+    } else {
+      putToTrie(key, value);
+    }
   }
 
   /**
@@ -157,41 +171,18 @@ public class Trie<I, K, V extends EntryValue> {
     if (node == null) {
       node = new TrieNode<>();
       root.put(key.charAt(0), node);
-      nodeSize.incrementAndGet();
+      nodeSize++;
     }
 
     add(node, key, key.length(), 1, value);
   }
 
-  private void add(TrieNode<K> node, String sequence, int length, int offset, EntryKey value) {
-
-    if (offset >= minSearchableKeyLength) {
-      if (node.getValues() == null) {
-        node.setValues(new HashSet<>());
-      }
-      node.getValues().add(value);
+  private void removeFromTrie(String key, EntryKey<I, K> value, String delimiter) {
+    if (StringUtils.isNotEmpty(delimiter)) {
+      Arrays.stream(key.split(delimiter)).forEach(k -> removeFromTrie(k, value));
+    } else {
+      removeFromTrie(key, value);
     }
-
-    if (length == offset) {
-      //size++;
-      return;
-    }
-
-    if (node.getSequences() == null) {
-      HashMap<Character, TrieNode<K>> children = new HashMap<>();
-      node.setSequences(children);
-    }
-
-    TrieNode<K> nextNode = node.getSequences().get(sequence.charAt(offset));
-
-    if (nextNode == null) {
-      nextNode = new TrieNode<>();
-      nodeSize.incrementAndGet();
-      nextNode.setParent(node);
-      node.getSequences().put(sequence.charAt(offset), nextNode);
-    }
-
-    add(nextNode, sequence, length, ++offset, value);
   }
 
   /**
@@ -214,7 +205,7 @@ public class Trie<I, K, V extends EntryValue> {
 
     if (firstNode.getSequences() != null && firstNode.getSequences().size() == 0) {
       root.remove(key.charAt(0));
-      nodeSize.decrementAndGet();
+      nodeSize--;
     }
 
     return true;
@@ -245,7 +236,7 @@ public class Trie<I, K, V extends EntryValue> {
     if ((children == null || children.size() == 0) && (values == null || values.size() == 0)) {
       node.setParent(null);
       parent.getSequences().remove(key.charAt(offset));
-      nodeSize.decrementAndGet();
+      nodeSize--;
     }
 
     return remove(parent, key, --offset, value);
@@ -275,6 +266,45 @@ public class Trie<I, K, V extends EntryValue> {
       }
     }
     return null;
+  }
+
+  /**
+   * Add a sequence of chars (initial key) to the trie
+   *
+   * @param node     - root node
+   * @param sequence - trie key
+   * @param length   - key length
+   * @param offset   - current char in the key
+   * @param value    - the value related to the key
+   */
+  private void add(TrieNode<K> node, String sequence, int length, int offset, EntryKey value) {
+
+    if (offset >= minSearchableKeyLength) {
+      if (node.getValues() == null) {
+        node.setValues(new HashSet<>());
+      }
+      node.getValues().add(value);
+    }
+
+    if (length == offset) {
+      return;
+    }
+
+    if (node.getSequences() == null) {
+      HashMap<Character, TrieNode<K>> children = new HashMap<>();
+      node.setSequences(children);
+    }
+
+    TrieNode<K> nextNode = node.getSequences().get(sequence.charAt(offset));
+
+    if (nextNode == null) {
+      nextNode = new TrieNode<>();
+      nodeSize++;
+      nextNode.setParent(node);
+      node.getSequences().put(sequence.charAt(offset), nextNode);
+    }
+
+    add(nextNode, sequence, length, ++offset, value);
   }
 
   /**
